@@ -3,16 +3,19 @@ import sys
 import time
 import random
 import re
+import os
 import requests
+from datetime import datetime
 
 BRIDGE_TOKEN = "668defb4f86d187197184b26bc8ba903454a512f2098255981a78a49a59fb967"
 BRIDGE_BASE = "http://127.0.0.1:8080"
 CSV_PATH = r"C:\Users\luisr\second_auckland_sparky_nonorth.csv"
-MAX_MESSAGES = 29       # max per run — stay well under WhatsApp's radar
-DELAY_MIN = 60          # minimum seconds between messages
-DELAY_MAX = 180         # maximum seconds between messages
+SENT_LOG = r"C:\Users\luisr\whatsapp_sent_log.txt"
+LOCK_FILE = r"C:\Users\luisr\whatsapp_leads.lock"
+MAX_MESSAGES = 29
+DELAY_MIN = 60
+DELAY_MAX = 180
 
-# {name} is replaced with the business name for each message
 MESSAGE_TEMPLATE = """Hi team at {name}, I'm Lewis. I'm registered with the EWRB as EAS and looking to complete my training and work experience to become a fully qualified electrician.
 
 Any chance you're taking on apprentices? And if not, do you know anyone in the trade who might be? Even a name would be a huge help.
@@ -26,6 +29,49 @@ HEADERS = {
 
 BRIDGE_ERRORS = ("not connected", "bridge not running", "connection refused", "timed out", "server returned error")
 
+
+# ── Sent log ────────────────────────────────────────────────────────────────
+
+def load_sent_log() -> set:
+    """Return set of E.164 numbers already successfully contacted."""
+    if not os.path.exists(SENT_LOG):
+        return set()
+    with open(SENT_LOG, encoding="utf-8") as f:
+        numbers = set()
+        for line in f:
+            parts = line.strip().split("\t")
+            if parts:
+                numbers.add(parts[0])
+        return numbers
+
+
+def record_sent(number: str, business_name: str) -> None:
+    """Append a successfully sent number to the log."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(SENT_LOG, "a", encoding="utf-8") as f:
+        f.write(f"{number}\t{business_name}\t{timestamp}\n")
+
+
+# ── Lock file (prevents two instances running simultaneously) ────────────────
+
+def acquire_lock() -> bool:
+    if os.path.exists(LOCK_FILE):
+        # Check if the lock is stale (older than 3 hours)
+        age = time.time() - os.path.getmtime(LOCK_FILE)
+        if age < 10800:
+            return False
+        os.remove(LOCK_FILE)
+    with open(LOCK_FILE, "w") as f:
+        f.write(str(os.getpid()))
+    return True
+
+
+def release_lock() -> None:
+    if os.path.exists(LOCK_FILE):
+        os.remove(LOCK_FILE)
+
+
+# ── Bridge ───────────────────────────────────────────────────────────────────
 
 def check_bridge() -> str | None:
     try:
@@ -54,11 +100,16 @@ def check_csv_writable() -> str | None:
 
 
 def save_csv(rows: list, fieldnames: list) -> None:
-    with open(CSV_PATH, "w", newline="", encoding="utf-8") as f:
+    # Write to temp file first, then rename — prevents partial writes
+    tmp = CSV_PATH + ".tmp"
+    with open(tmp, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+    os.replace(tmp, CSV_PATH)
 
+
+# ── Messaging ────────────────────────────────────────────────────────────────
 
 def to_e164(raw: str) -> str | None:
     digits = re.sub(r"\D", "", raw)
@@ -99,7 +150,21 @@ def is_bridge_error(msg: str) -> bool:
     return any(keyword in msg.lower() for keyword in BRIDGE_ERRORS)
 
 
+# ── Main ─────────────────────────────────────────────────────────────────────
+
 def main():
+    # Prevent two instances running at the same time
+    if not acquire_lock():
+        print("ERROR: Another instance of this script is already running. Exiting.")
+        return
+
+    try:
+        _run()
+    finally:
+        release_lock()
+
+
+def _run():
     health_err = check_bridge()
     if health_err:
         print(f"ERROR: {health_err}")
@@ -111,6 +176,10 @@ def main():
     if write_err:
         print(f"ERROR: {write_err}")
         return
+
+    sent_log = load_sent_log()
+    if sent_log:
+        print(f"Sent log loaded: {len(sent_log)} numbers already contacted (will be skipped).")
 
     print("Bridge connected. Reading CSV...")
 
@@ -144,6 +213,13 @@ def main():
             save_csv(rows, fieldnames)
             continue
 
+        # Skip if already in sent log — catches duplicates even if CSV was wrong
+        if number in sent_log:
+            print(f"  skip  [{row.get('Business Name', '?')}] already contacted ({number}), clearing from CSV.")
+            rows[i]["Mobile Number"] = ""
+            save_csv(rows, fieldnames)
+            continue
+
         attempt_count += 1
         business_name = row.get("Business Name", "").strip()
         message = build_message(business_name)
@@ -152,7 +228,7 @@ def main():
 
         success, msg = send_message(number, message)
 
-        # Retry up to 3 times if bridge is temporarily down (reconnecting)
+        # Retry up to 3 times if bridge is temporarily disconnecting
         if is_bridge_error(msg):
             for retry in range(1, 4):
                 print(f"\n  bridge error: {msg} — waiting 20s before retry {retry}/3 ...")
@@ -170,6 +246,9 @@ def main():
         if success:
             print("✓ sent")
             sent_count += 1
+            record_sent(number, business_name)  # write to log FIRST
+            sent_log.add(number)                # update in-memory set
+
         else:
             print(f"✗ {msg}")
 
@@ -182,6 +261,7 @@ def main():
             time.sleep(delay)
 
     print(f"\nDone. {sent_count} sent, {attempt_count - sent_count} failed, {attempt_count} total attempted this run.")
+    print(f"Sent log now has {len(sent_log)} total contacts.")
 
 
 if __name__ == "__main__":

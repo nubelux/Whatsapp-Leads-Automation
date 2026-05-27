@@ -13,11 +13,8 @@ DELAY_MIN = 60          # minimum seconds between messages
 DELAY_MAX = 180         # maximum seconds between messages
 
 # {name} is replaced with the business name for each message
-MESSAGE_TEMPLATE = """Hi team at {name}, I'm Lewis. I'm registered with the EWRB as EAS and looking to complete my training and work experience to become a fully qualified electrician.
-
-Any chance you're taking on apprentices? And if not, do you know anyone in the trade who might be? Even a name would be a huge help.
-
-Thanks so much!"""
+MESSAGE_TEMPLATE = """Hi team at {name}, I'm Zoe from AIco. With a custom-made AI tool, we can transform the way most of our clients run their businesses. Would you like to know more? 
+Reply STOP any time"""
 
 HEADERS = {
     "Authorization": f"Bearer {BRIDGE_TOKEN}",

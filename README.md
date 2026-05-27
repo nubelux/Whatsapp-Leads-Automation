@@ -50,8 +50,8 @@ The CSV must have a `Mobile Number` column with NZ mobile numbers. Example:
 
 | Business Name         | Mobile Number  | Address | ... |
 |-----------------------|----------------|---------|-----|
-| Thunder Sparks Ltd    | 027 200 2642   | ...     | ... |
-| Goodwill Electrical   | 027 204 4809   | ...     | ... |
+| Fiery   Electrical    | 021 264 9032   | ...     | ... |
+| Liquid Plumbers Ltd   | 027 735 0823   | ...     | ... |
 
 Update `CSV_PATH` in the script to point to your file.
 
@@ -118,13 +118,8 @@ python send_whatsapp_leads.py 10
 ## Message template
 
 ```
-Hi team at {Company Name}, I'm Lewis. I'm registered with the EWRB as EAS and
-looking to complete my training and work experience to become a fully qualified electrician.
-
-Any chance you're taking on apprentices? And if not, do you know anyone in the
-trade who might be? Even a name would be a huge help.
-
-Thanks so much!
+Hi team at {Company Name}, I'm Zoe from AIco. With a custom made AI tool, we can transform the way most of our clients run their businesses. Would you like to know more? 
+Reply STOP any time
 ```
 
 The `{Company Name}` is replaced with the first two words of the business name from the CSV.
